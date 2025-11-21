@@ -23,13 +23,13 @@ We’ll cover:
 
 Examples:
 
-- A `User` is created → automatically create a `Profile`
+- A `User` is created → automatically create a `UserProfile`
 - A `LessonProgress` is marked complete → update progress metadata
 - A `Course` is deleted → clean up related data
 
 In this part, we’ll implement:
 
-1. A **`post_save` signal** for `User` → auto‑create a `Profile`
+1. A **`post_save` signal** for `User` → auto‑create a `UserProfile`
 2. A **`pre_save` signal** for `LessonProgress` → auto‑set `completed_at` and keep your progress data consistent
 
 ---
@@ -46,13 +46,13 @@ This tutorial assumes you already have:
 from django.contrib.auth.models import User
 from django.db import models
 
-class Profile(models.Model):
+class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     bio = models.TextField(blank=True)
     avatar = models.ImageField(upload_to="profiles/avatars/", blank=True, null=True)
 
     def __str__(self):
-        return f"Profile for {self.user.username}"
+        return f"UserProfile for {self.user.username}"
 
 
 class Lesson(models.Model):
@@ -68,14 +68,14 @@ class Lesson(models.Model):
 class LessonProgress(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE)
-    is_completed = models.BooleanField(default=False)
+    completed = models.BooleanField(default=False)
     completed_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         unique_together = ("user", "lesson")
 
     def __str__(self):
-        return f"{self.user} – {self.lesson} – completed={self.is_completed}"
+        return f"{self.user} – {self.lesson} – completed={self.completed}"
 ```
 
 > 🔎 Your actual project may have more fields, but the signal logic is the same.
@@ -86,19 +86,19 @@ class LessonProgress(models.Model):
 
 Signals should live in a dedicated file so they’re easy to find and maintain.
 
-In your app (for example: `core` or `accounts`), create a file:
+In your app (for example: `core` or `users`), create a file:
 
-**`core/signals.py`** (adjust the app name to match your project):
+**`users/signals.py`**:
 
 ```python
-# core/signals.py
+# users/signals.py
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Profile, LessonProgress
+from .models import UserProfile
 
 User = get_user_model()
 ```
@@ -107,11 +107,11 @@ We’ll now add receivers step by step.
 
 ---
 
-## 👤 4. Auto‑Create a Profile When a User is Created
+## 👤 4. Auto‑Create a UserProfile When a User is Created
 
 We want:
 
-- Every time a `User` is created → **also create a `Profile`**
+- Every time a `User` is created → **also create a `UserProfile`**
 - If the user is updated later → do nothing
 
 Add this to `core/signals.py`:
@@ -122,10 +122,10 @@ Add this to `core/signals.py`:
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     """
-    Automatically create a Profile whenever a new User is created.
+    Automatically create a UserProfile whenever a new User is created.
     """
     if created:
-        Profile.objects.create(user=instance)
+        UserProfile.objects.create(user=instance)
 ```
 
 Optional: ensure a profile always exists (even if created manually later):
@@ -135,7 +135,7 @@ Optional: ensure a profile always exists (even if created manually later):
 def save_user_profile(sender, instance, **kwargs):
     """
     Ensure the user's profile is saved whenever the User is saved.
-    Useful if you add extra logic or default values to Profile.
+    Useful if you add extra logic or default values to UserProfile.
     """
     if hasattr(instance, "profile"):
         instance.profile.save()
@@ -147,24 +147,29 @@ def save_user_profile(sender, instance, **kwargs):
 
 We want `LessonProgress` to behave like this:
 
-- When `is_completed` becomes `True` and `completed_at` is empty → set `completed_at` to **now**
-- If `is_completed` is `False` → clear `completed_at`
+- When `completed` becomes `True` and `completed_at` is empty → set `completed_at` to **now**
+- If `completed` is `False` → clear `completed_at`
 - This happens **before saving**, so we don’t need extra `save()` calls
 
 Add a `pre_save` receiver to `core/signals.py`:
 
 ```python
+# core/signals.py
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.dispatch import receiver
+from django.utils import timezone
 from django.db.models.signals import pre_save
 
 @receiver(pre_save, sender=LessonProgress)
 def set_completed_at_for_progress(sender, instance, **kwargs):
     """
-    Keep LessonProgress.completed_at in sync with is_completed.
+    Keep LessonProgress.completed_at in sync with completed.
 
-    - If is_completed switches to True and completed_at is empty, set it to now.
-    - If is_completed is False, clear completed_at.
+    - If completed switches to True and completed_at is empty, set it to now.
+    - If completed is False, clear completed_at.
     """
-    if instance.is_completed:
+    if instance.completed:
         # If user has completed the lesson and no timestamp yet, set it
         if instance.completed_at is None:
             instance.completed_at = timezone.now()
@@ -185,7 +190,7 @@ Best practice is to do this inside your app’s `AppConfig`.
 
 ### 6.1. Create/Update the AppConfig
 
-Open or create `core/apps.py`:
+Open or create `core/apps.py` and `users/apps.py`:
 
 ```python
 # core/apps.py
@@ -201,7 +206,19 @@ class CoreConfig(AppConfig):
         from . import signals  # noqa: F401
 ```
 
-> 🔎 Replace `"core"` with your actual app name if different.
+```python
+# users/apps.py
+from django.apps import AppConfig
+
+
+class UsersConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "users"
+
+    def ready(self):
+        # Import signal handlers
+        from . import signals  # noqa: F401
+```
 
 ### 6.2. Register the AppConfig in `settings.py`
 
@@ -211,11 +228,12 @@ In `settings.py`, point Django to this config:
 INSTALLED_APPS = [
     # ...
     "core.apps.CoreConfig",
-    # instead of just "core"
+    "users.apps.UsersConfig",
+    # instead of just "core" or "users"
 ]
 ```
 
-Now, every time Django starts, it will import `core.signals` and register your receivers.
+Now, every time Django starts, it will import `core.signals` and `users.signals` to register your receivers.
 
 ---
 
@@ -223,7 +241,7 @@ Now, every time Django starts, it will import `core.signals` and register your r
 
 Let’s verify everything works as expected.
 
-### 7.1. Test User → Profile Creation
+### 7.1. Test User → UserProfile Creation
 
 Run the shell:
 
@@ -235,7 +253,7 @@ Then:
 
 ```python
 from django.contrib.auth import get_user_model
-from core.models import Profile
+from users.models import UserProfile
 
 User = get_user_model()
 
@@ -247,15 +265,15 @@ user = User.objects.create_user(
 )
 
 # Check if a profile was created
-Profile.objects.get(user=user)
+UserProfile.objects.get(user=user)
 ```
 
-If no exception is raised and you get a `Profile` object back, the signal is working. 🎉
+If no exception is raised and you get a `UserProfile` object back, the signal is working. 🎉
 
 You can also print it:
 
 ```python
-profile = Profile.objects.get(user=user)
+profile = UserProfile.objects.get(user=user)
 print(profile)
 ```
 
@@ -279,26 +297,26 @@ lesson = Lesson.objects.first()
 progress = LessonProgress.objects.create(
     user=user,
     lesson=lesson,
-    is_completed=False,
+    completed=False,
 )
 
-print(progress.is_completed)      # False
+print(progress.completed)      # False
 print(progress.completed_at)      # None
 
 # 2. Mark as completed
-progress.is_completed = True
+progress.completed = True
 progress.save()
 
 progress.refresh_from_db()
-print(progress.is_completed)      # True
+print(progress.completed)      # True
 print(progress.completed_at)      # Should now be set to a timestamp
 
 # 3. Mark as not completed again
-progress.is_completed = False
+progress.completed = False
 progress.save()
 
 progress.refresh_from_db()
-print(progress.is_completed)      # False
+print(progress.completed)      # False
 print(progress.completed_at)      # Should now be None again
 ```
 
@@ -321,13 +339,13 @@ Because your `LessonProgress` is probably exposed via DRF viewsets (from Part 4)
 ```json
 {
   "lesson": 1,
-  "is_completed": false
+  "completed": false
 }
 ```
 
 Expected response:
 
-- `is_completed`: `false`
+- `completed`: `false`
 - `completed_at`: `null`
 
 ### 8.2. Update Progress to Completed
@@ -336,13 +354,13 @@ Expected response:
 
 ```json
 {
-  "is_completed": true
+  "completed": true
 }
 ```
 
 Expected response:
 
-- `is_completed`: `true`
+- `completed`: `true`
 - `completed_at`: a timestamp string, e.g. `"2025-11-20T10:30:00Z"`
 
 All of this happens **because of the signal**, not manual logic in your views or serializers.
