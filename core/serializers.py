@@ -1,7 +1,21 @@
 from rest_framework import serializers
 from core.models import Course, Module, Lesson, Enrollment, LessonProgress
 from users.serializers import UserSerializer
+from drf_spectacular.utils import OpenApiExample, extend_schema_serializer
 
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            "Simple Lesson",
+            value={"id": 1, "name": "Intro", "content": "Welcome!"}
+        ),
+        OpenApiExample(
+            "Simple Lesson 2",
+            value={"id": 2, "name": "Intro 2", "content": "Welcome! 2"}
+        )
+    ]
+)
 # ------------------ Lesson ------------------
 class LessonSerializer(serializers.ModelSerializer):
     class Meta:

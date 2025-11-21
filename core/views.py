@@ -10,8 +10,10 @@ from core.serializers import (
     CourseSerializer, ModuleSerializer, LessonSerializer,
     EnrollmentSerializer, LessonProgressSerializer,
 )
+from drf_spectacular.utils import extend_schema
 
 
+@extend_schema(tags=["Courses"])
 class CourseViewSet(viewsets.ModelViewSet):
     queryset = (
         Course.objects.select_related()
@@ -78,6 +80,7 @@ class ModuleViewSet(viewsets.ModelViewSet):
             serializer.save()
 
 
+@extend_schema(tags=["Lessons"])
 class LessonViewSet(viewsets.ModelViewSet):
     queryset = Lesson.objects.select_related("module", "module__course")
     serializer_class = LessonSerializer
@@ -102,6 +105,9 @@ class LessonViewSet(viewsets.ModelViewSet):
         else:
             serializer.save()
 
+    @extend_schema(
+        description="Mark a lesson as complete for the authenticated user.",
+    )
     @action(detail=True, methods=["post"], url_path="mark-complete")  # optional, for hyphen URL
     def mark_complete(self, request, *args, **kwargs):
         """

@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'users',
     'lookups',
     'rest_framework',
+    'drf_spectacular'
 ]
 
 MIDDLEWARE = [
@@ -100,6 +101,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "120/min",
     },
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # Password validation
@@ -142,3 +144,12 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "LMS API",
+    "DESCRIPTION": "API documentation for the LMS platform used in this Django course.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": "/api/v1",
+}
